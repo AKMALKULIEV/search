@@ -1,10 +1,9 @@
 package search
 
-
 import (
-	"bufio"
+	// "bufio"
 	"context"
-	"io/ioutil"
+	// "io/ioutil"
 	"log"
 	"os"
 	"strings"
@@ -12,138 +11,108 @@ import (
 )
 
 type Result struct {
-	Phrase string
-	Line string
+	Phrase  string
+	Line    string
 	LineNum int64
-	ColNum int64
+	ColNum  int64
 }
 
 func All(ctx context.Context, phrase string, files []string) <-chan []Result {
+
 	ch := make(chan []Result)
 	wg := sync.WaitGroup{}
-
 	ctx, cancel := context.WithCancel(ctx)
 
 	for i := 0; i < len(files); i++ {
 		wg.Add(1)
 
-		go func(ctx context.Context, path string, i int, ch chan<- []Result) {
+		go func(ctx context.Context, path string, ch chan<- []Result) {
 			defer wg.Done()
 
-			res, err := FindAll(phrase, path)
+			results := []Result{}
+			data, err := os.ReadFile(path)
 			if err != nil {
-				log.Println("error not opened file err => ", err)
-				return
+				log.Print("can not open the file:", err)
 			}
 
-			if len(res) > 0 {
-				ch <- res
+			dataStr := string(data)
+			splitData := strings.Split(dataStr, "\n")
+
+			for index, line := range splitData {
+				if strings.Contains(line, phrase) {
+					result := Result{
+						Phrase:  phrase,
+						Line:    line,
+						LineNum: int64(index + 1),
+						ColNum:  int64(strings.Index(line, phrase) + 1),
+					}
+					results = append(results, result)
+				}
 			}
 
-		}(ctx, files[i], i, ch)
+			if len(results) > 0 {
+				ch <- results
+			}
+		}(ctx, files[i], ch)
 	}
 
 	go func() {
 		defer close(ch)
 		wg.Wait()
-
 	}()
 
 	cancel()
 	return ch
 }
 
+//Any - searches anyone phrase entries in files (text files).
+func Any(ctx context.Context, phrase string, files []string) <-chan []Result {
 
-func Any(ctx context.Context, phrase string, files []string) <-chan Result {
-	ch := make(chan Result)
+	ch := make(chan []Result)
 	wg := sync.WaitGroup{}
-	result := Result{}
-
 	ctx, cancel := context.WithCancel(ctx)
 
-	for _, f := range files {
-		file, err := ioutil.ReadFile(f)
-		if err != nil {
-			log.Println("error while open file: ", err)
-		}
+	for i := 0; i < len(files); i++ {
+		wg.Add(1)
 
-		if strings.Contains(string(file), phrase) {
-			res, err := FindAny(phrase, string(file))
+		go func(ctx context.Context, path string, ch chan<- []Result) {
+			defer wg.Done()
+
+			results := []Result{}
+			data, err := os.ReadFile(path)
 			if err != nil {
-				log.Println("error while open file: ", err)
+				log.Print("can not open the file:", err)
 			}
 
-			if (Result{}) != res {
-				result = res
-				break
-			}
-		}
+			dataStr := string(data)
+			splitData := strings.Split(dataStr, "\n")
 
+			for index, line := range splitData {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					if strings.Contains(line, phrase) {
+						result := Result{
+							Phrase:  phrase,
+							Line:    line,
+							LineNum: int64(index + 1),
+							ColNum:  int64(strings.Index(line, phrase) + 1),
+						}
+						results = append(results, result)
+						ch <- results
+						cancel()
+					}
+				}
+			}
+		}(ctx, files[i], ch)
 	}
-
-	wg.Add(1)
-	go func(ctx context.Context, ch chan<- Result) {
-		defer wg.Done()
-		if (Result{}) != result {
-			ch <- result
-		}
-	}(ctx, ch)
 
 	go func() {
 		defer close(ch)
 		wg.Wait()
-
+		cancel()
 	}()
 
-	cancel()
 	return ch
-}
-
-//FindAll ...
-func FindAll(phrase, path string) ([]Result, error) {
-	res := []Result{}
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var lines []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
-
-	for i := 0; i < len(lines); i++ {
-
-		if strings.Contains(lines[i], phrase) {
-
-			r := Result{
-				Phrase:  phrase,
-				Line:    lines[i],
-				LineNum: int64(i + 1),
-				ColNum:  int64(strings.Index(lines[i], phrase)) + 1,
-			}
-
-			res = append(res, r)
-		}
-	}
-	return res, nil
-}
-
-//FindAny ...
-func FindAny(phrase, path string) (Result, error) {
-	var lines []string
-	res := Result{}
-	for i := 0; i < len(lines); i++ {
-		if strings.Contains(lines[i], phrase) {
-			res = Result{
-				Phrase:  phrase,
-				Line:    lines[i],
-				LineNum: int64(i + 1),
-				ColNum:  int64(strings.Index(lines[i], phrase)) + 1,
-			}
-		}
-	}
-	return res, nil
 }
