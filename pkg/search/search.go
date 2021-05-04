@@ -1,22 +1,26 @@
 package search
 
 import (
-	// "bufio"
 	"context"
-	// "io/ioutil"
 	"log"
 	"os"
 	"strings"
 	"sync"
 )
 
+//Resut - discribe the result of one search
 type Result struct {
-	Phrase  string
-	Line    string
+	// phrase were looking for
+	Phrase string
+	//whole line in which the entry was found (without \n or \r\n)
+	Line string
+	//line number(starting from 1) in which the entry was found
 	LineNum int64
-	ColNum  int64
+	//position(column) number (starting form 1) in which the entry was found
+	ColNum int64
 }
 
+//All - searches all phrase entries in files (text files).
 func All(ctx context.Context, phrase string, files []string) <-chan []Result {
 
 	ch := make(chan []Result)
@@ -65,20 +69,18 @@ func All(ctx context.Context, phrase string, files []string) <-chan []Result {
 	return ch
 }
 
-//Any - searches anyone phrase entries in files (text files).
-func Any(ctx context.Context, phrase string, files []string) <-chan []Result {
+func Any(ctx context.Context, phrase string, files []string) <-chan Result {
 
-	ch := make(chan []Result)
+	ch := make(chan Result)
 	wg := sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(ctx)
 
 	for i := 0; i < len(files); i++ {
 		wg.Add(1)
 
-		go func(ctx context.Context, path string, ch chan<- []Result) {
+		go func(ctx context.Context, path string, ch chan<- Result) {
 			defer wg.Done()
-
-			results := []Result{}
+			
 			data, err := os.ReadFile(path)
 			if err != nil {
 				log.Print("can not open the file:", err)
@@ -99,8 +101,7 @@ func Any(ctx context.Context, phrase string, files []string) <-chan []Result {
 							LineNum: int64(index + 1),
 							ColNum:  int64(strings.Index(line, phrase) + 1),
 						}
-						results = append(results, result)
-						ch <- results
+						ch <- result
 						cancel()
 					}
 				}
